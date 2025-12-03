@@ -24,9 +24,11 @@ func run() error {
 	fd := dev.Fd()
 	log.Printf("opened /dev/video0 successfully, fd=%d", fd)
 
-	if err := v4l2.Start(fd); err != nil {
+	frame, err := v4l2.CaptureOneFrame(fd, 4)
+	if err != nil {
 		return err
 	}
+	fmt.Printf("frame: %v", frame)
 
 	return nil
 }
