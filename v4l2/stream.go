@@ -77,6 +77,11 @@ func CaptureOneFrame(fd uintptr, bufCount uint32) ([]byte, error) {
 		return nil, err
 	}
 
+	_, _, err = getCurrentFormat(fd)
+	if err != nil {
+		return nil, err
+	}
+
 	defer func() {
 		for _, b := range bufs {
 			if b.Data != nil {
@@ -84,16 +89,49 @@ func CaptureOneFrame(fd uintptr, bufCount uint32) ([]byte, error) {
 			}
 		}
 	}()
-	return nil, nil
+
+	if err := startStreaming(fd, bufs); err != nil {
+		return nil, err
+	}
+
+	frame, err := dequeueOneFrame(fd, bufs)
+
+	if errStop := stopStreaming(fd); errStop != nil && err == nil {
+		err = errStop
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return frame, nil
+}
+
+func preReqbufCleanup(fd uintptr) {
+	t := uint32(BufTypeVideoCapture)
+	req := iow(uintptr('V'), 19, uintptr(t))
+	_ = ioctl(fd, req, unsafe.Pointer(&t))
+
+	clr := RequestBuffers{
+		Count:  0,
+		Type:   BufTypeVideoCapture,
+		Memory: MemoryMmap,
+	}
+
+	clrReq := iowr(uintptr('V'), 8, unsafe.Sizeof(clr))
+	_ = ioctl(fd, clrReq, unsafe.Pointer(&clr))
+
 }
 
 func initMmap(fd uintptr, bufCount uint32) ([]MmapBuffer, error) {
+	// preReqbufCleanup(fd)
+
 	var req RequestBuffers
 	req.Count = bufCount
 	req.Type = BufTypeVideoCapture
 	req.Memory = MemoryMmap
 
-	reqBufs := iowr(uintptr('V'), 8, uintptr(unsafe.Sizeof(req)))
+	reqBufs := iowr(uintptr('V'), VIDIOC_REQBUFS, uintptr(unsafe.Sizeof(req)))
 	if err := ioctl(fd, reqBufs, unsafe.Pointer(&req)); err != nil {
 		return nil, fmt.Errorf("VIDIOC_REQBUFS failed: %v", err)
 	}
@@ -110,11 +148,11 @@ func initMmap(fd uintptr, bufCount uint32) ([]MmapBuffer, error) {
 		buf.Memory = MemoryMmap
 		buf.Index = i
 
-		reqQueryBuf := iowr(uintptr('V'), 9, uintptr(unsafe.Sizeof(buf)))
+		reqQueryBuf := iowr(uintptr('V'), VIDIOC_QUERYBUF, uintptr(unsafe.Sizeof(buf)))
 		if err := ioctl(fd, reqQueryBuf, unsafe.Pointer(&buf)); err != nil {
 			return nil, fmt.Errorf("VIDIOC_QUERYBUF index=%d failed: %v", i, err)
 		}
-		fmt.Printf("[%d] length: %d, offset: %d\n", i, buf.Length, buf.Offset())
+		// fmt.Printf("[%d] length: %d, offset: %d\n", i, buf.Length, buf.Offset())
 
 		length := buf.Length
 		offset := buf.Offset()
@@ -146,17 +184,54 @@ func startStreaming(fd uintptr, bufs []MmapBuffer) error {
 		buf.Memory = MemoryMmap
 		buf.Index = uint32(i)
 
-		reqBuf := iowr(uintptr('V'), 15, uintptr(unsafe.Sizeof(buf)))
+		reqBuf := iowr(uintptr('V'), VIDIOC_QBUF, uintptr(unsafe.Sizeof(buf)))
 		if err := ioctl(fd, reqBuf, unsafe.Pointer(&buf)); err != nil {
 			return fmt.Errorf("VIDIOC_QBUF index=%d failed: %v", i, err)
 		}
 	}
 
 	bufType := uint32(BufTypeVideoCapture)
-	reqStreamOn := iow(uintptr('V'), 18, uintptr(unsafe.Sizeof(bufType)))
+	reqStreamOn := iow(uintptr('V'), VIDIOC_STREAMON, uintptr(unsafe.Sizeof(bufType)))
 	if err := ioctl(fd, reqStreamOn, unsafe.Pointer(&bufType)); err != nil {
 		return fmt.Errorf("VIDIOC_STREAMON failed: %v", err)
 	}
 
 	return nil
+}
+
+func stopStreaming(fd uintptr) error {
+	bufType := uint32(BufTypeVideoCapture)
+	reqStreamOff := iow(uintptr('V'), VIDIOC_STREAMOFF, uintptr(unsafe.Sizeof(bufType)))
+	if err := ioctl(fd, reqStreamOff, unsafe.Pointer(&bufType)); err != nil {
+		return fmt.Errorf("VIDIOC_STREAMOFF failed: %v", err)
+	}
+	return nil
+}
+
+func dequeueOneFrame(fd uintptr, bufs []MmapBuffer) ([]byte, error) {
+	var buf Buffer
+	buf.Type = BufTypeVideoCapture
+	buf.Memory = MemoryMmap
+
+	reqDQBuf := iowr(uintptr('V'), VIDIOC_DQBUF, uintptr(unsafe.Sizeof(buf)))
+	if err := ioctl(fd, reqDQBuf, unsafe.Pointer(&buf)); err != nil {
+		return nil, fmt.Errorf("VIDIOC_DQBUF failed: %v", err)
+	}
+
+	idx := buf.Index
+	if int(idx) >= len(bufs) {
+		return nil, fmt.Errorf("DQBUF returned invalid index %d (n=%d)", idx, len(bufs))
+	}
+
+	used := buf.BytesUsed
+	if used == 0 || used > bufs[idx].Lentgh {
+		return nil, fmt.Errorf("unexpected bytesused=%d (buffer length=%d)", used, bufs[idx].Lentgh)
+	}
+
+	src := bufs[idx].Data[:used]
+
+	frame := make([]byte, used)
+	copy(frame, src)
+
+	return frame, nil
 }

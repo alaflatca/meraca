@@ -3,6 +3,7 @@ package v4l2
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"os"
 	"unsafe"
 
@@ -123,12 +124,7 @@ type Capability struct {
 func Start(fd uintptr) error {
 	var caps Capability
 
-	reqQueryCap := ior(
-		uintptr('V'),
-		0,
-		uintptr(unsafe.Sizeof(caps)),
-	)
-
+	reqQueryCap := ior(uintptr('V'), VIDIOC_QUERYCAP, uintptr(unsafe.Sizeof(caps)))
 	if err := ioctl(fd, reqQueryCap, unsafe.Pointer(&caps)); err != nil {
 		return err
 	}
@@ -183,17 +179,11 @@ func setFormatAndReadOneFrame(fd uintptr) error {
 	pix.PixelFormat = PixFmtYUYV
 	pix.Field = FieldNone
 
-	reqSetFmt := iowr(
-		uintptr('V'),
-		5,
-		uintptr(unsafe.Sizeof(fmtV4L2)),
-	)
-
-	fmt.Printf("VIDIOC_S_FMT req = %#x\n", reqSetFmt)
-
+	reqSetFmt := iowr(uintptr('V'), VIDIOC_S_FMT, uintptr(unsafe.Sizeof(fmtV4L2)))
 	if err := ioctl(fd, reqSetFmt, unsafe.Pointer(&fmtV4L2)); err != nil {
 		return fmt.Errorf("VIDIOC_S_FMT failed: %v", err)
 	}
+	fmt.Printf("VIDIOC_S_FMT req = %#x\n", reqSetFmt)
 
 	fmt.Println("==S_FMT result==")
 	fmt.Printf("size		: %d x %d\n", pix.Width, pix.Height)
@@ -224,4 +214,20 @@ func setFormatAndReadOneFrame(fd uintptr) error {
 	}
 
 	return nil
+}
+
+func getCurrentFormat(fd uintptr) (*Format, *PixFormat, error) {
+	var f Format
+	f.Type = BufTypeVideoCapture
+
+	reqGetFmt := iowr(uintptr('V'), VIDIOC_G_FMT, uintptr(unsafe.Sizeof(f)))
+	if err := ioctl(fd, reqGetFmt, unsafe.Pointer(&f)); err != nil {
+		return nil, nil, fmt.Errorf("VIDIOC_G_FMT failed: %v", err)
+	}
+
+	pix := f.Pix()
+	log.Printf("G_FMT: %dx%d, pixelformat=0x%08x, sizeimage=%d, bytesperline=%d",
+		pix.Width, pix.Height, pix.PixelFormat, pix.SizeImage, pix.BytesPerLine)
+
+	return &f, pix, nil
 }
