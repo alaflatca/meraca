@@ -76,7 +76,7 @@ func CaptureOneFrame(fd uintptr, bufCount uint32) ([]byte, error) {
 		return nil, err
 	}
 
-	if err := setFormat(fd, 640, 480, PixFmtMJPEG); err != nil {
+	if err := setFormat(fd, 640, 480, PixFmtpGAA); err != nil {
 		return nil, err
 	}
 

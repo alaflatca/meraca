@@ -92,6 +92,7 @@ func fourCC(a, b, c, d byte) uint32 {
 }
 
 var (
+	PixFmtpGAA  = fourCC('P', 'G', 'A', 'A')
 	PixFmtYUYV  = fourCC('Y', 'U', 'Y', 'V')
 	PixFmtMJPEG = fourCC('M', 'J', 'P', 'G')
 )
@@ -197,7 +198,7 @@ func setFormatAndReadOneFrame(fd uintptr) error {
 
 	pix.Width = 640
 	pix.Height = 480
-	pix.PixelFormat = PixFmtYUYV  // YUYV 포맷으로 설정
+	pix.PixelFormat = PixFmtYUYV // YUYV 포맷으로 설정
 	pix.Field = FieldNone
 
 	reqSetFmt := iowr(uintptr('V'), VIDIOC_S_FMT, uintptr(unsafe.Sizeof(fmtV4L2)))
