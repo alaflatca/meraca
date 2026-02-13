@@ -72,6 +72,14 @@ const (
 )
 
 func CaptureOneFrame(fd uintptr, bufCount uint32) ([]byte, error) {
+	if err := EnumFormats(fd); err != nil {
+		return nil, err
+	}
+
+	if err := setFormat(fd, 640, 480, PixFmtMJPEG); err != nil {
+		return nil, err
+	}
+
 	bufs, err := initMmap(fd, bufCount)
 	if err != nil {
 		return nil, err
@@ -105,22 +113,6 @@ func CaptureOneFrame(fd uintptr, bufCount uint32) ([]byte, error) {
 	}
 
 	return frame, nil
-}
-
-func preReqbufCleanup(fd uintptr) {
-	t := uint32(BufTypeVideoCapture)
-	req := iow(uintptr('V'), 19, uintptr(t))
-	_ = ioctl(fd, req, unsafe.Pointer(&t))
-
-	clr := RequestBuffers{
-		Count:  0,
-		Type:   BufTypeVideoCapture,
-		Memory: MemoryMmap,
-	}
-
-	clrReq := iowr(uintptr('V'), 8, unsafe.Sizeof(clr))
-	_ = ioctl(fd, clrReq, unsafe.Pointer(&clr))
-
 }
 
 func initMmap(fd uintptr, bufCount uint32) ([]MmapBuffer, error) {

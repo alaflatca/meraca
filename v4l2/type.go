@@ -2,6 +2,7 @@ package v4l2
 
 const (
 	VIDIOC_QUERYCAP  = 0
+	VIDIOC_ENUM_FMT  = 2
 	VIDIOC_G_FMT     = 4
 	VIDIOC_S_FMT     = 5
 	VIDIOC_REQBUFS   = 8

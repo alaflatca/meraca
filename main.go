@@ -18,7 +18,6 @@ func main() {
 
 func run() error {
 	fd, err := unix.Open("/dev/video0", unix.O_RDWR, 0)
-	// dev, err := os.OpenFile("/dev/video0", os.O_RDWR, 0)
 	if err != nil {
 		return err
 	}
@@ -30,7 +29,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("frame: %v", frame)
+	// fmt.Printf("frame: %v", frame)
 
 	if err := os.WriteFile("./frame.raw", frame, 0644); err != nil {
 		return err

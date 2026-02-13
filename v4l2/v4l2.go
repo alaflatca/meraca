@@ -167,6 +167,28 @@ func Start(fd uintptr) error {
 	return nil
 }
 
+func setFormat(fd uintptr, width, height, pixelFormat uint32) error {
+	var fmtV4L2 Format
+	fmtV4L2.Type = BufTypeVideoCapture
+
+	pix := fmtV4L2.Pix()
+	pix.Width = width
+	pix.Height = height
+	pix.PixelFormat = pixelFormat
+	pix.Field = FieldNone
+
+	reqSetFmt := iowr(uintptr('V'), VIDIOC_S_FMT, uintptr(unsafe.Sizeof(fmtV4L2)))
+	if err := ioctl(fd, reqSetFmt, unsafe.Pointer(&fmtV4L2)); err != nil {
+		return fmt.Errorf("VIDIOC_S_FMT failed: %v", err)
+	}
+
+	log.Printf("Set format: %dx%d, pixelformat=%s (0x%08x), bytesperline=%d, sizeimage=%d",
+		pix.Width, pix.Height, pixelFormatToString(pix.PixelFormat), pix.PixelFormat,
+		pix.BytesPerLine, pix.SizeImage)
+
+	return nil
+}
+
 func setFormatAndReadOneFrame(fd uintptr) error {
 	var fmtV4L2 Format
 	fmtV4L2.Type = BufTypeVideoCapture
@@ -175,8 +197,7 @@ func setFormatAndReadOneFrame(fd uintptr) error {
 
 	pix.Width = 640
 	pix.Height = 480
-	// pix.PixelFormat = PixFmtMJPEG
-	pix.PixelFormat = PixFmtYUYV
+	pix.PixelFormat = PixFmtYUYV  // YUYV 포맷으로 설정
 	pix.Field = FieldNone
 
 	reqSetFmt := iowr(uintptr('V'), VIDIOC_S_FMT, uintptr(unsafe.Sizeof(fmtV4L2)))
@@ -216,6 +237,48 @@ func setFormatAndReadOneFrame(fd uintptr) error {
 	return nil
 }
 
+func pixelFormatToString(pf uint32) string {
+	return string([]byte{
+		byte(pf & 0xff),
+		byte((pf >> 8) & 0xff),
+		byte((pf >> 16) & 0xff),
+		byte((pf >> 24) & 0xff),
+	})
+}
+
+type FmtDesc struct {
+	Index       uint32
+	Type        uint32
+	Flags       uint32
+	Description [32]byte
+	PixelFormat uint32
+	Reserved    [4]uint32
+}
+
+func EnumFormats(fd uintptr) error {
+	fmt.Println("==Supported Formats==")
+	for i := uint32(0); ; i++ {
+		var fmtDesc FmtDesc
+		fmtDesc.Index = i
+		fmtDesc.Type = BufTypeVideoCapture
+
+		reqEnumFmt := iowr(uintptr('V'), VIDIOC_ENUM_FMT, uintptr(unsafe.Sizeof(fmtDesc)))
+		if err := ioctl(fd, reqEnumFmt, unsafe.Pointer(&fmtDesc)); err != nil {
+			if i == 0 {
+				return fmt.Errorf("VIDIOC_ENUM_FMT failed: %v", err)
+			}
+			break
+		}
+
+		fmt.Printf("[%d] %s (0x%08x): %s\n",
+			i,
+			pixelFormatToString(fmtDesc.PixelFormat),
+			fmtDesc.PixelFormat,
+			cString(fmtDesc.Description[:]))
+	}
+	return nil
+}
+
 func getCurrentFormat(fd uintptr) (*Format, *PixFormat, error) {
 	var f Format
 	f.Type = BufTypeVideoCapture
@@ -226,8 +289,9 @@ func getCurrentFormat(fd uintptr) (*Format, *PixFormat, error) {
 	}
 
 	pix := f.Pix()
-	log.Printf("G_FMT: %dx%d, pixelformat=0x%08x, sizeimage=%d, bytesperline=%d",
-		pix.Width, pix.Height, pix.PixelFormat, pix.SizeImage, pix.BytesPerLine)
+	log.Printf("G_FMT: %dx%d, pixelformat=0x%08x (%s), sizeimage=%d, bytesperline=%d",
+		pix.Width, pix.Height, pix.PixelFormat, pixelFormatToString(pix.PixelFormat),
+		pix.SizeImage, pix.BytesPerLine)
 
 	return &f, pix, nil
 }
